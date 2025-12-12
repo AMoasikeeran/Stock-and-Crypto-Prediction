@@ -14,8 +14,13 @@ if not API_KEY:
 BASE_URL = "https://www.alphavantage.co/query"
 # Default to the free Natural Gas commodity endpoint the user provided; override via env
 API_FUNCTION = os.getenv("ALPHAVANTAGE_FUNCTION", "NATURAL_GAS")
-# Used by stock endpoints (ignored by commodity endpoints)
-API_OUTPUT_SIZE = os.getenv("ALPHAVANTAGE_OUTPUTSIZE", "full")
+# Stock-specific settings (separate from commodity)
+STOCK_FUNCTION = os.getenv("ALPHAVANTAGE_STOCK_FUNCTION", "TIME_SERIES_DAILY")
+STOCK_OUTPUT_SIZE = (
+    os.getenv("ALPHAVANTAGE_STOCK_OUTPUTSIZE")
+    or os.getenv("ALPHAVANTAGE_OUTPUTSIZE")
+    or "compact"
+)
 # Used by commodity endpoints such as NATURAL_GAS
 API_INTERVAL = os.getenv("ALPHAVANTAGE_INTERVAL", "monthly")
 # Allow separate keys / fallback for commodities (demo key helps when hitting limits)
@@ -29,30 +34,43 @@ RETRY_DELAY_SECONDS = int(os.getenv("ALPHAVANTAGE_RETRY_DELAY_SECONDS", "60"))
 DATA_DIR = Path("data/raw/stocks")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-STOCK_SYMBOLS = ["AAPL", "MSFT", "TSLA"]
+STOCK_SYMBOLS = ["AAPL", "MSFT", "TSLA", "IBM"]
 
 
-def fetch_daily_stock(symbol: str) -> pd.DataFrame:
+def fetch_daily_stock(
+    symbol: str, function: str, output_size: str, api_key: str = API_KEY
+) -> pd.DataFrame:
     """Fetch daily OHLCV data for one stock."""
-    params = {
-        "function": API_FUNCTION,
-        "symbol": symbol,
-        "outputsize": API_OUTPUT_SIZE,
-        "datatype": "json",
-        "apikey": API_KEY,
-    }
-    resp = requests.get(BASE_URL, params=params, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+    current_output_size = output_size
+    for attempt in range(1, 3):  # at most one fallback attempt (full -> compact)
+        params = {
+            "function": function,
+            "symbol": symbol,
+            "outputsize": current_output_size,
+            "datatype": "json",
+            "apikey": api_key,
+        }
+        resp = requests.get(BASE_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
 
-    info_msg = data.get("Information") or data.get("Note")
-    if info_msg:
-        raise ValueError(
-            f"Alpha Vantage returned a message for {symbol}: {info_msg} "
-            f"(function={API_FUNCTION}, outputsize={API_OUTPUT_SIZE}). "
-            "Set ALPHAVANTAGE_FUNCTION=TIME_SERIES_DAILY and/or "
-            "ALPHAVANTAGE_OUTPUTSIZE=compact in your .env to avoid premium limits."
-        )
+        info_msg = data.get("Information") or data.get("Note")
+        if info_msg:
+            premium_full = "outputsize=full" in info_msg.lower() or "premium feature" in info_msg.lower()
+            if premium_full and current_output_size.lower() == "full":
+                print(
+                    f"Alpha Vantage message for {symbol}: {info_msg} "
+                    "Retrying with outputsize=compact..."
+                )
+                current_output_size = "compact"
+                continue
+
+            raise ValueError(
+                f"Alpha Vantage returned a message for {symbol}: {info_msg} "
+                f"(function={function}, outputsize={current_output_size}). "
+                "Set ALPHAVANTAGE_STOCK_OUTPUTSIZE=compact in your .env to avoid premium limits."
+            )
+        break
 
     # Alpha Vantage returns nested JSON; "Time Series (Daily)" contains date→values
     key = "Time Series (Daily)"
@@ -176,6 +194,13 @@ def main():
         brent_path = DATA_DIR / f"brent_{API_INTERVAL}.csv"
         brent_df.to_csv(brent_path, index=False)
         print(f"Saved {len(brent_df)} rows to {brent_path}")
+        # Pause before stock call to respect rate limits
+        time.sleep(15)
+        print(f"Fetching IBM stock (function={STOCK_FUNCTION}, outputsize={STOCK_OUTPUT_SIZE})...")
+        ibm_df = fetch_daily_stock("IBM", STOCK_FUNCTION, STOCK_OUTPUT_SIZE)
+        ibm_path = DATA_DIR / "IBM_daily.csv"
+        ibm_df.to_csv(ibm_path, index=False)
+        print(f"Saved {len(ibm_df)} rows to {ibm_path}")
     elif API_FUNCTION.upper() == "BRENT":
         print(f"Fetching BRENT (interval={API_INTERVAL})...")
         brent_df = fetch_brent(API_INTERVAL)
@@ -185,7 +210,7 @@ def main():
     else:
         for symbol in STOCK_SYMBOLS:
             print(f"Fetching {symbol}...")
-            df = fetch_daily_stock(symbol)
+            df = fetch_daily_stock(symbol, STOCK_FUNCTION, STOCK_OUTPUT_SIZE)
             out_path = DATA_DIR / f"{symbol}_daily.csv"
             df.to_csv(out_path, index=False)
             print(f"Saved {len(df)} rows to {out_path}")
