@@ -18,6 +18,13 @@ API_FUNCTION = os.getenv("ALPHAVANTAGE_FUNCTION", "NATURAL_GAS")
 API_OUTPUT_SIZE = os.getenv("ALPHAVANTAGE_OUTPUTSIZE", "full")
 # Used by commodity endpoints such as NATURAL_GAS
 API_INTERVAL = os.getenv("ALPHAVANTAGE_INTERVAL", "monthly")
+# Allow separate keys / fallback for commodities (demo key helps when hitting limits)
+COMMODITY_API_KEY = os.getenv("ALPHAVANTAGE_COMMODITY_API_KEY", API_KEY)
+COMMODITY_FALLBACK_KEY = os.getenv("ALPHAVANTAGE_COMMODITY_FALLBACK_KEY", "demo")
+BRENT_API_KEY = os.getenv("ALPHAVANTAGE_BRENT_API_KEY", COMMODITY_API_KEY)
+NAT_GAS_API_KEY = os.getenv("ALPHAVANTAGE_NATURAL_GAS_API_KEY", COMMODITY_API_KEY)
+MAX_RETRIES = int(os.getenv("ALPHAVANTAGE_MAX_RETRIES", "2"))
+RETRY_DELAY_SECONDS = int(os.getenv("ALPHAVANTAGE_RETRY_DELAY_SECONDS", "60"))
 
 DATA_DIR = Path("data/raw/stocks")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -79,41 +86,80 @@ def fetch_daily_stock(symbol: str) -> pd.DataFrame:
     return df
 
 
+def fetch_commodity(
+    function_name: str, interval: str, symbol_label: str, api_key: str
+) -> pd.DataFrame:
+    """Fetch commodity prices from Alpha Vantage (e.g., NATURAL_GAS, BRENT)."""
+    key_to_use = api_key
+    fallback_used = False
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        params = {
+            "function": function_name,
+            "interval": interval,
+            "datatype": "json",
+            "apikey": key_to_use,
+        }
+        resp = requests.get(BASE_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        info_msg = data.get("Information") or data.get("Note")
+        if info_msg:
+            # Try demo fallback once if the primary key hit rate limits
+            if (
+                not fallback_used
+                and COMMODITY_FALLBACK_KEY
+                and key_to_use != COMMODITY_FALLBACK_KEY
+            ):
+                print(
+                    f"Alpha Vantage message for {function_name}: {info_msg}. "
+                    "Retrying with fallback key..."
+                )
+                key_to_use = COMMODITY_FALLBACK_KEY
+                fallback_used = True
+                continue
+
+            if attempt < MAX_RETRIES:
+                print(
+                    f"Alpha Vantage message for {function_name}: {info_msg}. "
+                    f"Waiting {RETRY_DELAY_SECONDS}s then retrying "
+                    f"({attempt}/{MAX_RETRIES})..."
+                )
+                time.sleep(RETRY_DELAY_SECONDS)
+                continue
+
+            raise ValueError(
+                f"Alpha Vantage returned a message for {function_name}: {info_msg} "
+                f"(interval={interval}). Try waiting a minute or set "
+                "ALPHAVANTAGE_COMMODITY_FALLBACK_KEY=demo in your .env."
+            )
+
+        if "data" not in data:
+            raise ValueError(f"Unexpected response for {function_name}: {data}")
+
+        records = data["data"]
+        if not records:
+            raise ValueError(f"{function_name} returned no data.")
+
+        df = pd.DataFrame(records)
+        df.rename(columns={"value": "price"}, inplace=True)
+        df["symbol"] = symbol_label
+        df["date"] = pd.to_datetime(df["date"])
+        df["price"] = df["price"].astype(float)
+        df = df[["symbol", "date", "price"]]
+        df.sort_values("date", inplace=True)
+        return df
+
+    raise RuntimeError(f"Failed to fetch {function_name} after {MAX_RETRIES} attempts.")
+
+
 def fetch_natural_gas(interval: str) -> pd.DataFrame:
-    """Fetch monthly Natural Gas prices (free Alpha Vantage commodity endpoint)."""
-    params = {
-        "function": "NATURAL_GAS",
-        "interval": interval,
-        "datatype": "json",
-        "apikey": API_KEY,
-    }
-    resp = requests.get(BASE_URL, params=params, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+    return fetch_commodity("NATURAL_GAS", interval, "NATURAL_GAS", NAT_GAS_API_KEY)
 
-    info_msg = data.get("Information") or data.get("Note")
-    if info_msg:
-        raise ValueError(
-            f"Alpha Vantage returned a message for NATURAL_GAS: {info_msg} "
-            f"(interval={interval}). Try waiting a minute or use the demo key "
-            "for testing."
-        )
 
-    if "data" not in data:
-        raise ValueError(f"Unexpected response for NATURAL_GAS: {data}")
-
-    records = data["data"]
-    if not records:
-        raise ValueError("NATURAL_GAS returned no data.")
-
-    df = pd.DataFrame(records)
-    df.rename(columns={"value": "price"}, inplace=True)
-    df["symbol"] = "NATURAL_GAS"
-    df["date"] = pd.to_datetime(df["date"])
-    df["price"] = df["price"].astype(float)
-    df = df[["symbol", "date", "price"]]
-    df.sort_values("date", inplace=True)
-    return df
+def fetch_brent(interval: str) -> pd.DataFrame:
+    return fetch_commodity("BRENT", interval, "BRENT", BRENT_API_KEY)
 
 
 def main():
@@ -123,6 +169,19 @@ def main():
         out_path = DATA_DIR / f"natural_gas_{API_INTERVAL}.csv"
         df.to_csv(out_path, index=False)
         print(f"Saved {len(df)} rows to {out_path}")
+        # Pause briefly to respect rate limits before the next commodity call
+        time.sleep(15)
+        print(f"Fetching BRENT (interval={API_INTERVAL})...")
+        brent_df = fetch_brent(API_INTERVAL)
+        brent_path = DATA_DIR / f"brent_{API_INTERVAL}.csv"
+        brent_df.to_csv(brent_path, index=False)
+        print(f"Saved {len(brent_df)} rows to {brent_path}")
+    elif API_FUNCTION.upper() == "BRENT":
+        print(f"Fetching BRENT (interval={API_INTERVAL})...")
+        brent_df = fetch_brent(API_INTERVAL)
+        brent_path = DATA_DIR / f"brent_{API_INTERVAL}.csv"
+        brent_df.to_csv(brent_path, index=False)
+        print(f"Saved {len(brent_df)} rows to {brent_path}")
     else:
         for symbol in STOCK_SYMBOLS:
             print(f"Fetching {symbol}...")
