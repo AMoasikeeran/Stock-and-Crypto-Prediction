@@ -1,38 +1,77 @@
-# Stock-and-Crypto-Prediction
+# 📈 Stock & Crypto Prediction Platform
 
-An end-to-end **fintech data platform** that ingests **real stock and crypto market data**, stores it in a **cloud data lake (AWS S3)**, processes it with **Python / Spark**, and trains **machine learning models** to predict future price movements and generate **trading signals**.
+An **end-to-end fintech data platform** that ingests real stock and cryptocurrency market data, stores it in a cloud-based data lake, processes it using modern data engineering tools, and trains machine learning models to predict future price movements and generate trading signals.
 
-## 🔍 What this project does
+This project is designed as a **learning-focused yet industry-aligned portfolio project**, simulating how real-world trading, quantitative, and fintech platforms handle data ingestion, processing, and predictive modelling.
 
-- Collects **real-time & historical** price data for:
-  - Selected **stocks** (e.g. AAPL, MSFT, TSLA).
-  - Selected **crypto pairs** (e.g. BTC/USDT, ETH/USDT).
-- Stores raw market data in a **data lake** (local + AWS S3).
-- Cleans and transforms data into **feature-rich time series**
-- Trains **ML models** to predict:
-  - Next price/return.
-  - Up/down movement.
-- Outputs **signals** (BUY / SELL / HOLD) and evaluation metrics.
+---
 
-This project is built as a **learning and portfolio project** to simulate how real trading/quant/fintech platforms handle data and predictions.
+## 🔍 What This Project Does
 
-## 🧱 Tech Stack (Planned)
+The platform performs the following key functions:
 
-- **Languages:** Python, SQL
-- **Data & Storage:** Parquet/CSV, AWS S3 (free tier), PostgreSQL (Docker)
-- **Processing & ML:**
-  - Pandas / Polars
-  - (Later) Spark on **Databricks Free Edition**
-- **Orchestration:** Apache Airflow (Docker)
-- **Modelling:** scikit-learn, (optionally PyTorch / TensorFlow for LSTMs)
-- **Infrastructure / Tools:**
-  - Docker & docker-compose
-  - Git + GitHub
-  - Jira or GitHub Projects for task tracking
+### 📊 Market Data Ingestion
+- Collects **historical and near real-time price data** for:
+  - Selected **stocks** (e.g. AAPL, MSFT, TSLA)
+  - Selected **crypto trading pairs** (e.g. BTC/USDT, ETH/USDT)
+- Uses **reliable public market data sources** with minimal setup friction.
+- Implements robust ingestion patterns (pagination, retries, logging).
 
-⚠️ This project is designed to utilise **free tiers only** (AWS S3 free tier, Databricks Free Edition, and free stock/crypto APIs).
+### 🗄️ Data Storage
+- Stores **raw market data** in a data lake:
+  - Local filesystem (development)
+  - **AWS S3 (Free Tier)** for cloud storage
+- Organises data into raw, processed, and model-ready layers.
 
-## 🗂 Repository Structure (initial draft)
+### 🧹 Data Processing & Feature Engineering
+- Cleans and transforms raw market data into **feature-rich time series**.
+- Generates features such as:
+  - Returns
+  - Rolling averages
+  - Volatility metrics
+  - Momentum indicators
+
+### 🤖 Machine Learning & Prediction
+- Trains ML models to predict:
+  - Next-period price or return
+  - Directional movement (up / down)
+- Generates **trading-style signals**:
+  - BUY / SELL / HOLD
+- Evaluates model performance using standard metrics.
+
+---
+
+## 🧱 Tech Stack (Planned & In Progress)
+
+### Languages
+- Python
+- SQL
+
+### Data & Storage
+- CSV / Parquet
+- **AWS S3 (Free Tier)**
+- PostgreSQL (via Docker)
+
+### Processing & Machine Learning
+- Pandas / Polars
+- scikit-learn
+- *(Optional extension)* PyTorch / TensorFlow (e.g. LSTM models)
+- *(Later stage)* Apache Spark via **Databricks Free Edition**
+
+### Orchestration
+- Apache Airflow (Docker-based)
+
+### Infrastructure & Tooling
+- Docker & docker-compose
+- Git & GitHub
+- Jira or GitHub Projects for task tracking
+
+⚠️ **Note:**  
+This project is intentionally built using **free-tier and open-source tools only**, ensuring it is fully reproducible without paid services.
+
+---
+
+## 🗂 Repository Structure
 
 ```text
 stock-crypto-prediction-platform/
